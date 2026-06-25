@@ -62,6 +62,8 @@ body,html{margin:0;padding:0;overflow:hidden;background:var(--void);font-family:
   opacity:0;transform:translate(-50%,12px);transition:all .4s cubic-bezier(.25,1,.5,1);pointer-events:none;
 }
 #gs.v{opacity:1;transform:translateX(-50%);}
+.popup{position:absolute;transform:translate(-50%,-50%);font-family:'Orbitron',sans-serif;font-weight:800;font-size:15px;letter-spacing:1px;pointer-events:none;z-index:250;text-shadow:0 0 10px currentColor;animation:popup .85s cubic-bezier(.2,.8,.3,1) forwards;}
+@keyframes popup{0%{opacity:0;transform:translate(-50%,-50%) scale(.4);}18%{opacity:1;transform:translate(-50%,-60%) scale(1.15);}100%{opacity:0;transform:translate(-50%,-150%) scale(1);}}
 #df{
   position:absolute;inset:0;z-index:150;pointer-events:none;
   background:radial-gradient(ellipse at center,transparent 30%,rgba(255,59,92,.6) 100%);
@@ -292,13 +294,15 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass }      from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { AfterimagePass }  from 'three/addons/postprocessing/AfterimagePass.js';
+import { ShaderPass }      from 'three/addons/postprocessing/ShaderPass.js';
 
 /* ── Constants ─────────────────────────────────────────────────────────────── */
 const SPAWN_R=215, FIRE_MS=160, MSL_CD=1100, LASER_SPD=10, MSL_SPD=4.6, COLL_PAD=14;
 const MAX_LIVES=3, INV_F=80, LASER_RANGE=340, ENG_N=280;
 
 /* ── Globals ───────────────────────────────────────────────────────────────── */
-let scene, camera, renderer, composer, bloomPass;
+let scene, camera, renderer, composer, bloomPass, gradePass;
+let bloomBoost=0, camBaseX=0, camBaseY=0;
 let nebula, streakGroup, shipGroup, barrelL, barrelR, engineL, engineR;
 let enginePts, engV, engVels=[];
 let time=0;
@@ -390,6 +394,27 @@ float snoise(vec3 v){
   bloomPass=new UnrealBloomPass(new THREE.Vector2(innerWidth,innerHeight),1.15,.7,.22);
   composer.addPass(bloomPass);
   composer.addPass(new AfterimagePass(.62));
+
+  // Cinematic grade: edge chromatic aberration, vignette, subtle film grain
+  gradePass=new ShaderPass({
+    uniforms:{tDiffuse:{value:null},uTime:{value:0},uAberration:{value:1},uVignette:{value:1}},
+    vertexShader:'varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
+    fragmentShader:`uniform sampler2D tDiffuse;uniform float uTime,uAberration,uVignette;varying vec2 vUv;
+      void main(){
+        vec2 c=vUv-.5; float d=dot(c,c);
+        vec2 off=c*d*0.012*uAberration;
+        float r=texture2D(tDiffuse,vUv+off).r;
+        float g=texture2D(tDiffuse,vUv).g;
+        float b=texture2D(tDiffuse,vUv-off).b;
+        vec3 col=vec3(r,g,b);
+        float vig=smoothstep(0.9,0.25,d*2.0);
+        col*=mix(1.0,vig,0.6*uVignette);
+        float n=fract(sin(dot(vUv*vec2(uTime+1.0,uTime+1.3),vec2(12.9898,78.233)))*43758.5453);
+        col+=(n-0.5)*0.04;
+        gl_FragColor=vec4(col,1.0);
+      }`,
+  });
+  composer.addPass(gradePass);
 
   buildNebula();buildStars();buildStreaks();buildShip();buildEngineTrail();
   initMP();
@@ -701,8 +726,9 @@ function spawnEnemy(type,baseSpd){
     fragmentShader:'uniform vec3 col,acc;uniform float time;varying vec3 vN;void main(){float rim=pow(1.-abs(dot(vN,vec3(0.,0.,1.))),.6);gl_FragColor=vec4(mix(col*.5,mix(col,acc,.55),rim),rim*1.7+.2);}',
     transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,
   });
-  const mesh=new THREE.Mesh(geo,mat);mesh.position.copy(pos);scene.add(mesh);
-  enemies.push({mesh,type,hp,maxHp:hp,spd,sz:type==='scout'?5.5:11,sc,fireTimer:fireInt,fireInt,age:0});
+  const mesh=new THREE.Mesh(geo,mat);mesh.position.copy(pos);mesh.scale.setScalar(.05);scene.add(mesh);
+  enemies.push({mesh,type,hp,maxHp:hp,spd,sz:type==='scout'?5.5:11,sc,fireTimer:fireInt,fireInt,age:0,hitFlash:0});
+  spawnRing(pos.clone(),type==='scout'?0xffa45c:0x9d6fff,type==='scout'?6:10);
 }
 function spawnSwarm(spd){
   const ba=Math.random()*Math.PI*2,N=6;
@@ -716,8 +742,9 @@ function spawnSwarm(spd){
       fragmentShader:'uniform vec3 col,acc;varying vec3 vN;void main(){float rim=pow(1.-abs(dot(vN,vec3(0.,0.,1.))),.5);gl_FragColor=vec4(mix(col,acc,rim),rim*2.+.3);}',
       transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,
     });
-    const mesh=new THREE.Mesh(geo,mat);mesh.position.copy(pos);scene.add(mesh);
-    enemies.push({mesh,type:'swarm',hp:1,maxHp:1,spd:spd*1.75+Math.random()*.08,sz:4,sc:25*wave,fireTimer:0,fireInt:0,age:0});
+    const mesh=new THREE.Mesh(geo,mat);mesh.position.copy(pos);mesh.scale.setScalar(.05);scene.add(mesh);
+    enemies.push({mesh,type:'swarm',hp:1,maxHp:1,spd:spd*1.75+Math.random()*.08,sz:4,sc:25*wave,fireTimer:0,fireInt:0,age:0,hitFlash:0});
+    spawnRing(pos.clone(),0xff3b5c,3);
     wavePending++;
     setTimeout(()=>{if(state===S.P)wavePending--;},i*50);
   }
@@ -751,6 +778,21 @@ function spawnFlash(p){
   const m=new THREE.Mesh(new THREE.SphereGeometry(2.6,8,8),new THREE.MeshBasicMaterial({color:0xccfff6,blending:THREE.AdditiveBlending,transparent:true,opacity:.95}));
   m.position.copy(p);scene.add(m);
   effects.push({mesh:m,age:0,maxAge:7,type:'flash'});
+}
+function spawnRing(p,color,size){
+  const m=new THREE.Mesh(new THREE.SphereGeometry(size,10,8),new THREE.MeshBasicMaterial({color,blending:THREE.AdditiveBlending,transparent:true,opacity:.85}));
+  m.position.copy(p);scene.add(m);
+  effects.push({mesh:m,age:0,maxAge:12,type:'flash'});
+}
+function scorePopup(worldPos,text,color){
+  const v=worldPos.clone().project(camera);
+  if(v.z>1)return;
+  const el=document.createElement('div');
+  el.className='popup';el.textContent=text;el.style.color=color;
+  el.style.left=((v.x*.5+.5)*innerWidth)+'px';
+  el.style.top=((-v.y*.5+.5)*innerHeight)+'px';
+  document.body.appendChild(el);
+  setTimeout(()=>el.remove(),850);
 }
 
 /* ── Missiles ──────────────────────────────────────────────────────────────── */
@@ -806,6 +848,7 @@ function enemyShoot(e){
 
 /* ── Explosions ────────────────────────────────────────────────────────────── */
 function explode(pos,big){
+  bloomBoost=Math.min(bloomBoost+(big?1.0:.45),2.4);
   // Expanding ring
   const sph=new THREE.Mesh(new THREE.SphereGeometry(big?7:3.5,12,8),new THREE.ShaderMaterial({
     uniforms:{prog:{value:0},col:{value:big?C.vlt.clone():C.ember.clone()}},
@@ -843,8 +886,12 @@ function hitEnemy(e){
   e.hp--;
   if(e.hp<=0){
     explode(e.mesh.position.clone(),e.type==='cruiser');
+    scorePopup(e.mesh.position.clone(),'+'+e.sc.toLocaleString(),e.type==='cruiser'?'#b794ff':e.type==='swarm'?'#ff6b8a':'#ffb86b');
     score+=e.sc;kills++;$sv.textContent=score.toLocaleString();$kv.textContent=kills;
     scene.remove(e.mesh);enemies.splice(enemies.indexOf(e),1);checkWaveClear();
+  }else{
+    e.hitFlash=6;
+    spawnRing(e.mesh.position.clone(),0xffffff,e.sz*.5);
   }
 }
 
@@ -864,10 +911,6 @@ function animate(){
 
   if(state===S.P){
     if(invincible&&--invTimer<=0)invincible=false;
-    if(shake>0){
-      camera.position.set((Math.random()-.5)*shake*.22,(Math.random()-.5)*shake*.22,130);
-      shake*=.8;if(shake<.4){camera.position.set(0,0,130);shake=0;}
-    }
 
     // Ship follows the hand smoothly (you pilot it directly)
     const sp=shipGroup.position;
@@ -936,6 +979,8 @@ function animate(){
     // Enemies
     for(let i=enemies.length-1;i>=0;i--){
       const e=enemies[i];e.age++;
+      if(e.mesh.scale.x<1)e.mesh.scale.setScalar(Math.min(1,e.mesh.scale.x+.08));
+      if(e.hitFlash>0){e.hitFlash--;e.mesh.scale.setScalar(1+e.hitFlash*.05);}
       e.mesh.material.uniforms.time&&(e.mesh.material.uniforms.time.value=time);
       e.mesh.rotation.x+=.02;e.mesh.rotation.y+=.017;
       e.mesh.position.add(shipGroup.position.clone().sub(e.mesh.position).normalize().multiplyScalar(e.spd));
@@ -1004,6 +1049,18 @@ function animate(){
     }
     if(ex.age>=ex.maxAge){scene.remove(ex.mesh);effects.splice(i,1);}
   }
+
+  // Dynamic camera: gentle parallax drift toward the fighter + impact shake
+  camBaseX+=(shipGroup.position.x*.05-camBaseX)*.04;
+  camBaseY+=(shipGroup.position.y*.05-camBaseY)*.04;
+  let shx=0,shy=0;
+  if(shake>0){shx=(Math.random()-.5)*shake*.5;shy=(Math.random()-.5)*shake*.5;shake*=.85;if(shake<.4)shake=0;}
+  camera.position.set(camBaseX+shx,camBaseY+shy,130);
+
+  // Bloom punch from explosions, eased back to the baseline strength
+  bloomBoost*=.9;if(bloomBoost<.01)bloomBoost=0;
+  bloomPass.strength=1.15+bloomBoost;
+  if(gradePass){gradePass.uniforms.uTime.value=time;gradePass.uniforms.uAberration.value=1+bloomBoost*1.4+shake*.05;}
 
   composer.render();
 }
