@@ -442,8 +442,18 @@ function buildStars(){
     const p=new THREE.Vector3(Math.random()-.5,Math.random()-.5,Math.random()-.5).normalize().multiplyScalar(300+Math.random()*600);
     v[i*3]=p.x;v[i*3+1]=p.y;v[i*3+2]=p.z;
   }
+  // Soft round star sprite — gives each point a gentle glow instead of a hard square
+  const sc=document.createElement('canvas');sc.width=sc.height=32;
+  const sg=sc.getContext('2d');
+  const grd=sg.createRadialGradient(16,16,0,16,16,16);
+  grd.addColorStop(0,'rgba(255,255,255,1)');
+  grd.addColorStop(.25,'rgba(255,255,255,.95)');
+  grd.addColorStop(.5,'rgba(210,235,255,.55)');
+  grd.addColorStop(1,'rgba(190,225,255,0)');
+  sg.fillStyle=grd;sg.fillRect(0,0,32,32);
+  const starTex=new THREE.CanvasTexture(sc);
   const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(v,3));
-  scene.add(new THREE.Points(g,new THREE.PointsMaterial({size:1.1,color:0xcceeff,transparent:true,opacity:.7,depthWrite:false})));
+  scene.add(new THREE.Points(g,new THREE.PointsMaterial({size:4.0,map:starTex,color:0xffffff,transparent:true,opacity:1,depthWrite:false,sizeAttenuation:false,blending:THREE.AdditiveBlending})));
   // Small dim background layer
   const v2=new Float32Array(1500*3);
   for(let i=0;i<1500;i++){
@@ -451,7 +461,7 @@ function buildStars(){
     v2[i*3]=p.x;v2[i*3+1]=p.y;v2[i*3+2]=p.z;
   }
   const g2=new THREE.BufferGeometry();g2.setAttribute('position',new THREE.Float32BufferAttribute(v2,3));
-  scene.add(new THREE.Points(g2,new THREE.PointsMaterial({size:.45,color:0x88aacc,transparent:true,opacity:.4,depthWrite:false})));
+  scene.add(new THREE.Points(g2,new THREE.PointsMaterial({size:2.4,map:starTex,color:0xcfe2ff,transparent:true,opacity:.7,depthWrite:false,sizeAttenuation:false,blending:THREE.AdditiveBlending})));
 }
 
 /* ── Radial streaks (animated warp field) ──────────────────────────────────── */
