@@ -1,5 +1,7 @@
 # Void Hunter
 
+![Void Hunter Preview](preview.png)
+
 A browser-based space shooter game controlled entirely by **hand gestures** using your webcam — no keyboard, no mouse.
 
 Built with MediaPipe Hands and HTML5 Canvas. No install needed, runs in the browser.
