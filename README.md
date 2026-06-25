@@ -10,6 +10,7 @@ Built with MediaPipe Hands and HTML5 Canvas. No install needed, runs in the brow
 
 ---
 
+
 ## How to Play
 
 | Gesture | Action |
